@@ -60,7 +60,8 @@ text = add_once(
     text,
     "class TranspositionTable;\nstruct SharedHistories;\n",
     "// XQ repetition-rule options, set from the UCI layer (engine.cpp)\n"
-    "extern bool ChineseRule;\n"
+    "extern bool ChineseRule;
+extern bool SkyRule;\n"
     "extern int  MateThreatDepth;\n"
 )
 
@@ -86,7 +87,8 @@ text = add_once(
     text,
     "using namespace Attacks;\n",
     "// XQ repetition-rule option state (defaults: Asian rule)\n"
-    "bool ChineseRule    = false;\n"
+    "bool ChineseRule    = false;
+bool SkyRule        = false;\n"
     "int  MateThreatDepth = 1;\n"
 )
 
@@ -240,9 +242,10 @@ text = add_once(
     '        return std::nullopt;\n'
     '    }));\n'
     '\n'
-    '    options.add("Repetition Rule", Option("AsianRule var AsianRule var ChineseRule", "AsianRule",\n'
+    '    options.add("Repetition Rule", Option("AsianRule var AsianRule var ChineseRule var SkyRule", "AsianRule",\n'
     '      [](const Option& o) {\n'
-    '          ChineseRule = (o == "ChineseRule");\n'
+    '          ChineseRule = (o == "ChineseRule");
+          SkyRule = (o == "SkyRule");\n'
     '          return std::nullopt;\n'
     '      }));\n'
 )
@@ -691,7 +694,7 @@ bool Position::sky_rule_judge(Value& result, int ply) {
 text = add_once(
     text,
     "bool Position::rule_judge(Value& result, int ply) {\n",
-    "    if (SKY_RULE_ENABLED && sky_rule_judge(result, ply))\n        return true;\n",
+    "    if (SkyRule && sky_rule_judge(result, ply))\n        return true;\n",
 )
 
 write(path, text)
