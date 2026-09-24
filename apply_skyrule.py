@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply AsianRule (Run #11) + SkyRule overlay to an official Pikafish checkout."""
+"""Pure AsianRule (Run #11) build, no sky stubs."""
 from __future__ import annotations
 from pathlib import Path
 import re
@@ -35,7 +35,7 @@ path = SRC / "position.cpp"
 text = read(path)
 backup(path)
 text = add_once(text, "using namespace Attacks;\n",
-    "bool ChineseRule = false;\nbool SkyRule = true;\nint  MateThreatDepth = 1;\n")
+    "bool ChineseRule = true;\nbool SkyRule = false;\nint  MateThreatDepth = 1;\n")
 
 old_detect_start = "Value Position::detect_chases(int d, int ply) {"
 if old_detect_start in text:
@@ -121,7 +121,7 @@ text = read(path)
 backup(path)
 text = add_once(text, '    options.add("nodestime", Option(0, 0, 10000));\n',
     '    options.add("Mate Threat Depth", Option(1, 0, 10, [](const Option& o) { MateThreatDepth = int(o); return std::nullopt; }));\n'
-    '    options.add("Repetition Rule", Option("SkyRule var AsianRule var ChineseRule var SkyRule", "SkyRule", [](const Option& o) { ChineseRule = (o == "ChineseRule"); SkyRule = (o == "SkyRule"); return std::nullopt; }));\n')
+    '    options.add("Repetition Rule", Option("ChineseRule var AsianRule var ChineseRule", "ChineseRule", [](const Option& o) { ChineseRule = (o == "ChineseRule"); return std::nullopt; }));\n')
 write(path, text)
 
 path = SRC / "ucioption.cpp"
@@ -131,15 +131,4 @@ text = re.sub(r'(std::string\s+token;\s*\n\s*std::istringstream ss\(defaultValue
     r'''\1        { if (token == "var" || comboMap.count(token)) continue; comboMap.add(token, Option()); }''', text, count=1)
 write(path, text)
 
-# SkyRule header
-header = ROOT / "src_skyrule.h"
-write(SRC / "skyrule.h", header.read_text(encoding="utf-8"))
-
-# SkyRule judgment (use existing sky_rule_result which returns ±24999)
-path = SRC / "position.cpp"
-text = read(path)
-if '#include "skyrule.h"' not in text:
-    text = add_once(text, '#include "position.h"\n', '#include "skyrule.h"\n')
-write(path, text)
-
-print("Run13 build restored.")
+print("Pure AsianRule build applied.")
