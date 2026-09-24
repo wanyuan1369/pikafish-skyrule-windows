@@ -86,9 +86,9 @@ backup(path)
 text = add_once(
     text,
     "using namespace Attacks;\n",
-    "// XQ repetition-rule option state (defaults: Asian rule)\n"
+    "// XQ repetition-rule option state (dedicated SkyRule build: always on)\n"
     "bool ChineseRule    = false;\n"
-    "bool SkyRule        = false;\n"
+    "bool SkyRule        = true;\n"
     "int  MateThreatDepth = 1;\n"
 )
 
@@ -242,7 +242,7 @@ text = add_once(
     '        return std::nullopt;\n'
     '    }));\n'
     '\n'
-    '    options.add("Repetition Rule", Option("AsianRule var AsianRule var ChineseRule var SkyRule", "AsianRule",\n'
+    '    options.add("Repetition Rule", Option("SkyRule var AsianRule var ChineseRule var SkyRule", "SkyRule",\n'
     '      [](const Option& o) {\n'
     '          ChineseRule = (o == "ChineseRule");\n          SkyRule = (o == "SkyRule");\n'
     '          return std::nullopt;\n'
@@ -706,11 +706,11 @@ bool Position::sky_rule_judge(Value& result, int ply) {
 '''
     text = text.replace(marker, helper + marker, 1)
 
-# Dispatch SkyRule first
+# Dispatch SkyRule first (dedicated build: always enabled)
 text = add_once(
     text,
     "bool Position::rule_judge(Value& result, int ply) {\n",
-    "    if (SkyRule && sky_rule_judge(result, ply))\n        return true;\n",
+    "    if (sky_rule_judge(result, ply))\n        return true;\n",
 )
 
 write(path, text)
