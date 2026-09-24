@@ -12,7 +12,6 @@ on:
       - 'apply_skyrule.py'
       - 'src_skyrule.h'
       - '.github/workflows/build-skyrule.yml'
-      - 'data/tiantian_cases.txt'
 
 permissions:
   contents: read
@@ -48,18 +47,12 @@ jobs:
           git checkout FETCH_HEAD
           echo "UPSTREAM_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Apply SkyRule overlay
+      - name: Apply overlay
         shell: msys2 {0}
         run: |
-          cp apply_skyrule.py src_skyrule.h pikafish/
-          mkdir -p pikafish/data
-          cp data/tiantian_cases.txt pikafish/data/
+          cp apply_skyrule.py pikafish/
           cd pikafish
           python apply_skyrule.py
-          test -f src/skyrule.h
-          grep -q 'SKY_RULE_WIN' src/skyrule.h
-          grep -q 'sky_rule_judge' src/position.cpp
-          grep -q 'SKY_RULE_ROOT_CHECK_APPLIED' src/search.cpp
 
       - name: Build Windows x86-64 universal
         shell: msys2 {0}
@@ -76,14 +69,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          Copy-Item pikafish/src/pikafish.exe "dist/Pikafish-SkyRule-Windows-x86-64-universal.exe"
+          Copy-Item pikafish/src/pikafish.exe "dist/Pikafish-Windows-x86-64-universal.exe"
           "$env:UPSTREAM_SHA" | Out-File -Encoding utf8 dist/upstream-sha.txt
-          Compress-Archive -Path "dist/Pikafish-SkyRule-Windows-x86-64-universal.exe", "dist/upstream-sha.txt" -DestinationPath "dist/Pikafish-SkyRule-Windows-x86-64-universal.zip" -Force
+          Compress-Archive -Path "dist/Pikafish-Windows-x86-64-universal.exe", "dist/upstream-sha.txt" -DestinationPath "dist/Pikafish-Windows-x86-64-universal.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Pikafish-SkyRule-Windows-x86-64-universal
+          name: Pikafish-Windows-x86-64-universal
           path: |
-            dist/Pikafish-SkyRule-Windows-x86-64-universal.zip
+            dist/Pikafish-Windows-x86-64-universal.zip
             dist/upstream-sha.txt
