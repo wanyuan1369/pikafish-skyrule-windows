@@ -445,7 +445,7 @@ bool Position::sky_check_limit_violation(Color& violator) const {
     return false;
 }
 
-// TianTian practical long-chase limit: 6 consecutive chase moves
+// TianTian practical long-chase limit: 6 consecutive chases of the SAME piece
 bool Position::sky_chase_limit_violation(Color& violator) const {
     Position rollback;
     std::memcpy((void*) &rollback, (const void*) this, offsetof(Position, filter));
@@ -457,6 +457,7 @@ bool Position::sky_chase_limit_violation(Color& violator) const {
 
     StateInfo* stp = this->st;
     int run[COLOR_NB] = {0, 0};
+    u16 lastChased[COLOR_NB] = {0, 0};
 
     for (int n = 0; stp && n < 20; ++n)
     {
@@ -471,6 +472,7 @@ bool Position::sky_chase_limit_violation(Color& violator) const {
         if (capture)
         {
             run[WHITE] = run[BLACK] = 0;
+            lastChased[WHITE] = lastChased[BLACK] = 0;
             rollback.undo_move(m, stp->capturedPiece);
             break;
         }
@@ -478,6 +480,7 @@ bool Position::sky_chase_limit_violation(Color& violator) const {
         if (type_of(moved) == PAWN)
         {
             run[mover] = 0;
+            lastChased[mover] = 0;
             rollback.undo_move(m, stp->capturedPiece);
             stp = stp->previous;
             continue;
@@ -487,10 +490,22 @@ bool Position::sky_chase_limit_violation(Color& violator) const {
         rollback.undo_move(m, stp->capturedPiece);
         const u16 before = rollback.chased(mover);
 
-        if (after & ~before)
-            ++run[mover];
+        const u16 newChases = after & ~before;
+        if (newChases)
+        {
+            if (lastChased[mover] && (newChases & lastChased[mover]))
+                ++run[mover];
+            else
+            {
+                run[mover] = 1;
+                lastChased[mover] = newChases;
+            }
+        }
         else
+        {
             run[mover] = 0;
+            lastChased[mover] = 0;
+        }
 
         if (run[mover] >= 6)
         {
@@ -508,17 +523,11 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
     Position rollback;
     std::memcpy((void*) &rollback, (const void*) this, offsetof(Position, filter));
 
-    // Track per-side:
-    // - checkCount: how many non-forced checks
-    // - chaseCount: how many moves that create new chase
-    // - chaseIntersection: intersection of all chased targets across moves
-    // - allCheck: is every move a non-forced check?
     int  checkCount[COLOR_NB] = {0, 0};
     int  chaseCount[COLOR_NB] = {0, 0};
     int  moveCount[COLOR_NB]  = {0, 0};
     bool allCheck[COLOR_NB]   = {true, true};
-    u16  chaseIntersection[COLOR_NB] = {0xFFFF, 0xFFFF};  // intersection of chased targets
-    // Record first violation step (larger = earlier)
+    u16  chaseIntersection[COLOR_NB] = {0xFFFF, 0xFFFF};
     int firstCheckStep[COLOR_NB] = {-1, -1};
     int firstChaseStep[COLOR_NB] = {-1, -1};
 
@@ -535,7 +544,6 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
 
         ++moveCount[mover];
 
-        // Count non-forced checks
         if (isCheck && !forced)
         {
             ++checkCount[mover];
@@ -544,20 +552,16 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
         }
         allCheck[mover] &= (isCheck && !forced);
 
-        // Count chase: did this move create new chase?
-        // (after undoing, we compare chased() before vs after the move)
         const u16 after = rollback.chased(mover);
         rollback.undo_move(stp->move, stp->capturedPiece);
         const u16 before = rollback.chased(mover);
 
-        // Newly created chase targets
         const u16 newChases = after & ~before;
 
         if (newChases)
         {
             if (forced)
             {
-                // 应将产生的捉，算先将军的一方
                 ++chaseCount[~mover];
                 if (firstChaseStep[~mover] < 0)
                     firstChaseStep[~mover] = i;
@@ -573,18 +577,14 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
 
         stp = stp->previous;
 
-        // Captures break the cycle
         if (capture)
             return false;
     }
 
-    // Need moves from both sides
     if (moveCount[WHITE] == 0 || moveCount[BLACK] == 0)
         return false;
 
-    const int halfCycle = d / 2;  // moves per side in the cycle
-
-    // Rule 1: Long check (all moves are non-forced checks)
+    // Rule 1: Long check (highest priority)
     if (allCheck[WHITE] || allCheck[BLACK])
     {
         if (allCheck[WHITE] ^ allCheck[BLACK])
@@ -595,15 +595,31 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
         }
         else
         {
-            // Both sides long check: red must change (TianTian rule)
             result = sky_rule_result(WHITE, sideToMove);
             return true;
         }
     }
 
-    // Rule 2: Long chase (same target chased every move)
-    // Long chase definition: there exists an enemy piece that is chased in EVERY move
-    // = chaseIntersection != 0
+    // Rule 2: Check-chase cycle (next highest priority)
+    const bool whiteCheckChase = (checkCount[WHITE] > 0) && (chaseCount[WHITE] > 0);
+    const bool blackCheckChase = (checkCount[BLACK] > 0) && (chaseCount[BLACK] > 0);
+
+    if (whiteCheckChase ^ blackCheckChase)
+    {
+        const Color offender = whiteCheckChase ? WHITE : BLACK;
+        result = sky_rule_result(offender, sideToMove);
+        return true;
+    }
+
+    if (whiteCheckChase && blackCheckChase)
+    {
+        int whiteFirst = std::max(firstCheckStep[WHITE], firstChaseStep[WHITE]);
+        int blackFirst = std::max(firstCheckStep[BLACK], firstChaseStep[BLACK]);
+        result = sky_rule_result(whiteFirst > blackFirst ? WHITE : BLACK, sideToMove);
+        return true;
+    }
+
+    // Rule 3: Long chase same target
     const bool whiteLongChase = (chaseIntersection[WHITE] != 0);
     const bool blackLongChase = (chaseIntersection[BLACK] != 0);
 
@@ -617,78 +633,43 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
         }
         else
         {
-            // Both sides long chase: who started first?
-            int whiteFirst = firstChaseStep[WHITE];
-            int blackFirst = firstChaseStep[BLACK];
-            if (whiteFirst > blackFirst)
-            {
-                result = sky_rule_result(WHITE, sideToMove);
-            }
-            else
-            {
-                result = sky_rule_result(BLACK, sideToMove);
-            }
+            result = sky_rule_result(firstChaseStep[WHITE] > firstChaseStep[BLACK] ? WHITE : BLACK, sideToMove);
             return true;
         }
     }
 
-    // Rule 3: Check-chase cycle (alternating check and chase, same piece)
-    // TianTian: one-piece check-chase cycle is a violation
-    // e.g. one move checks, next move chases, repeating
-    // Detect: half the moves are check, half are chase, and there's consistency
-    const bool whiteCheckChase = (checkCount[WHITE] > 0) && (chaseCount[WHITE] > 0);
-    const bool blackCheckChase = (checkCount[BLACK] > 0) && (chaseCount[BLACK] > 0);
-
-    if (whiteCheckChase ^ blackCheckChase)
+    // Rule 4: One side checks, the other chases (different targets allowed)
+    const bool whiteHasCheck = checkCount[WHITE] > 0;
+    const bool blackHasCheck = checkCount[BLACK] > 0;
+    if (whiteHasCheck != blackHasCheck)
     {
-        const Color offender = whiteCheckChase ? WHITE : BLACK;
-        result = sky_rule_result(offender, sideToMove);
-        return true;
+        Color checker = whiteHasCheck ? WHITE : BLACK;
+        Color chaser  = ~checker;
+        if (chaseCount[chaser] > 0 && chaseCount[checker] == 0)
+        {
+            result = sky_rule_result(chaser, sideToMove);
+            return true;
+        }
     }
 
-    // Rule 4: Both sides have check-chase cycle
-    if (whiteCheckChase && blackCheckChase)
-    {
-        // Who started first?
-        int whiteFirst = std::max(firstCheckStep[WHITE], firstChaseStep[WHITE]);
-        int blackFirst = std::max(firstCheckStep[BLACK], firstChaseStep[BLACK]);
-        if (whiteFirst > blackFirst)
-        {
-            result = sky_rule_result(WHITE, sideToMove);
-        }
-        else
-        {
-            result = sky_rule_result(BLACK, sideToMove);
-        }
-        return true;
-    }
-
-    // Note: pure chase cycle with different targets (one piece chases different pieces)
-    // is allowed in TianTian, not a violation (e.g. case 3)
-    // Only same-target long chase counts, which we already handled in Rule 2
-
-    // Neutral cycle: draw
     result = VALUE_DRAW;
     return true;
 }
 
 bool Position::sky_rule_judge(Value& result, int ply) {
-    // 1) Long-check limit violation
     Color violator;
-    if (st->pliesFromNull >= 13 && st->checkersBB && sky_check_limit_violation(violator))
+    if (st->checkersBB && sky_check_limit_violation(violator))
     {
         result = sky_rule_result(violator, sideToMove);
         return true;
     }
 
-    // 2) Long-chase limit violation
-    if (st->pliesFromNull >= 13 && sky_chase_limit_violation(violator))
+    if (sky_chase_limit_violation(violator))
     {
         result = sky_rule_result(violator, sideToMove);
         return true;
     }
 
-    // 3) 2-fold repetition check/chase
     int occurrence = 1;
     StateInfo* stp = st->previous ? st->previous->previous : nullptr;
     int d = 2;
@@ -713,7 +694,6 @@ bool Position::sky_rule_judge(Value& result, int ply) {
             break;
     }
 
-    // 4) Neutral repetition: 5th occurrence is draw
     if (occurrence >= 5)
     {
         result = VALUE_DRAW;
