@@ -57,13 +57,13 @@ text = read(path)
 backup(path)
 text = add_once(
     text,
-    "    bool rule_judge(Value& result, int ply = 0);\n",
-    "    bool sky_rule_judge(Value& result, int ply = 0);\n",
+    "    bool  rule_judge(Value& result, int ply = 0);\n",
+    "    bool  sky_rule_judge(Value& result, int ply = 0);\n",
 )
 
 # Private helpers.  Keeping these as Position members gives them legitimate
 # access to the existing idBoard and detect_chases machinery.
-private_anchor = "    Value detect_chases(int d, int ply);\n"
+private_anchor = "    Value                 detect_chases(int d, int ply = 0);\n"
 private_add = (
     "    bool sky_check_limit_violation(Color& violator) const;\n"
     "    bool sky_chase_limit_violation(Color& violator) const;\n"
@@ -416,7 +416,7 @@ write(path, text)
 path = SRC / "search.cpp"
 text = read(path)
 backup(path)
-root_marker = "    if (!rootNode)\n    {\n        Value result = VALUE_NONE;\n"
+root_marker = "    if (!rootNode)\n    {\n        // Step 2. Check for aborted search or repetition\n        Value result = VALUE_NONE;\n"
 root_add = (
     "    // SKY_RULE_ROOT_CHECK_APPLIED\n"
     "    if (rootNode)\n"
