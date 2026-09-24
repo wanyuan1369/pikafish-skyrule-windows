@@ -21,7 +21,7 @@ def add_once(text, needle, addition, before=False):
     if needle not in text: die(f"anchor not found: {needle[:160]!r}")
     return text.replace(needle, addition + needle if before else needle + addition, 1)
 
-# Step 1: AsianRule patch
+# AsianRule patch
 path = SRC / "position.h"
 text = read(path)
 backup(path)
@@ -131,25 +131,15 @@ text = re.sub(r'(std::string\s+token;\s*\n\s*std::istringstream ss\(defaultValue
     r'''\1        { if (token == "var" || comboMap.count(token)) continue; comboMap.add(token, Option()); }''', text, count=1)
 write(path, text)
 
-# Step 2: SkyRule header
+# SkyRule header
 header = ROOT / "src_skyrule.h"
 write(SRC / "skyrule.h", header.read_text(encoding="utf-8"))
+
+# SkyRule judgment (use existing sky_rule_result which returns ±24999)
 path = SRC / "position.cpp"
 text = read(path)
 if '#include "skyrule.h"' not in text:
     text = add_once(text, '#include "position.h"\n', '#include "skyrule.h"\n')
-
-# Replace all rule violation scores with ±24999 (use official loop detection)
-old = """                // 3 folds and 2 fold draws can be judged immediately
-                if (result == VALUE_DRAW || cnt == 2)
-                    return true;"""
-new = """                // SKY RULE: convert violation scores to ±24999
-                if (result > VALUE_MATE / 2) result = SKY_RULE_WIN;
-                else if (result < -VALUE_MATE / 2) result = SKY_RULE_LOSS;
-                // 3 folds and 2 fold draws can be judged immediately
-                if (result == VALUE_DRAW || cnt == 2)
-                    return true;"""
-if old in text:
-    text = text.replace(old, new, 1)
 write(path, text)
-print("SkyRule patched.")
+
+print("Run13 build restored.")
