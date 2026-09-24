@@ -1,0 +1,90 @@
+name: Build Pikafish SkyRule Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Official Pikafish ref (master or commit SHA)'
+        required: false
+        default: 'master'
+  push:
+    paths:
+      - 'apply_skyrule.py'
+      - 'src_skyrule.h'
+      - '.github/workflows/build-skyrule.yml'
+      - 'data/tiantian_cases.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            python3
+
+      - name: Fetch official Pikafish
+        shell: msys2 {0}
+        env:
+          PIKAFISH_REF: ${{ github.event.inputs.ref || 'master' }}
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/official-pikafish/Pikafish.git pikafish
+          cd pikafish
+          git fetch --depth=1 origin "${PIKAFISH_REF}"
+          git checkout FETCH_HEAD
+          echo "UPSTREAM_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Apply SkyRule overlay
+        shell: msys2 {0}
+        run: |
+          cp apply_skyrule.py src_skyrule.h pikafish/
+          mkdir -p pikafish/data
+          cp data/tiantian_cases.txt pikafish/data/
+          cd pikafish
+          python apply_skyrule.py
+          test -f src/skyrule.h
+          grep -q 'SKY_RULE_WIN' src/skyrule.h
+          grep -q 'sky_rule_judge' src/position.cpp
+          grep -q 'SKY_RULE_ROOT_CHECK_APPLIED' src/search.cpp
+
+      - name: Build Windows x86-64 universal
+        shell: msys2 {0}
+        working-directory: pikafish/src
+        run: |
+          make -j"$(nproc)" build ARCH=x86-64
+          test -f pikafish.exe
+          ./pikafish.exe <<'EOF'
+          uci
+          quit
+          EOF
+
+      - name: Archive binary
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp pikafish/src/pikafish.exe "dist/Pikafish-SkyRule-Windows-x86-64-universal.exe"
+          printf '%s\n' "$UPSTREAM_SHA" > dist/upstream-sha.txt
+          cd dist
+          7z a "Pikafish-SkyRule-Windows-x86-64-universal.zip" "Pikafish-SkyRule-Windows-x86-64-universal.exe" upstream-sha.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pikafish-SkyRule-Windows-x86-64-universal
+          path: |
+            dist/Pikafish-SkyRule-Windows-x86-64-universal.zip
+            dist/upstream-sha.txt
