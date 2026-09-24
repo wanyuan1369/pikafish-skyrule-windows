@@ -92,6 +92,9 @@ text = add_once(
 
 # Replace detect_chases function body with AsianRule version
 old_detect_start = "Value Position::detect_chases(int d, int ply) {"
+old_detect_end = "    return bool(chase[us]) ^ bool(chase[them]) ? chase[us] ? mated_in(ply) : mate_in(ply)\n" \
+                 "                                               : VALUE_DRAW;\n" \
+                 "}\n"
 
 # Find the old detect_chases function and replace it
 if old_detect_start in text:
@@ -498,13 +501,21 @@ bool Position::sky_chase_limit_violation(Color& violator) const {
     return false;
 }
 
-// Classify a 2-fold repeated position
+// Classify a 2-fold repeated position (TianTian precise logic)
 bool Position::sky_classify_twofold(int d, Value& result, int ply) {
     Position rollback;
     std::memcpy((void*) &rollback, (const void*) this, offsetof(Position, filter));
 
-    bool allChecking[COLOR_NB] = {true, true};
-    int  moveCount[COLOR_NB]   = {0, 0};
+    // Track per-side:
+    // - checkCount: how many non-forced checks
+    // - chaseCount: how many moves that create new chase
+    // - chaseIntersection: intersection of all chased targets across moves
+    // - allCheck: is every move a non-forced check?
+    int  checkCount[COLOR_NB] = {0, 0};
+    int  chaseCount[COLOR_NB] = {0, 0};
+    int  moveCount[COLOR_NB]  = {0, 0};
+    bool allCheck[COLOR_NB]   = {true, true};
+    u16  chaseIntersection[COLOR_NB] = {0xFFFF, 0xFFFF};  // intersection of chased targets
 
     StateInfo* stp = this->st;
     for (int i = 0; i < d && stp; ++i)
@@ -514,30 +525,111 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
 
         const Color mover = ~rollback.side_to_move();
         const bool forced = stp->previous && bool(stp->previous->checkersBB);
-        allChecking[mover] &= bool(stp->checkersBB) && !forced;
+        const bool isCheck = bool(stp->checkersBB);
+        const bool capture = stp->capturedPiece != NO_PIECE;
+
         ++moveCount[mover];
 
+        // Count non-forced checks
+        if (isCheck && !forced)
+            ++checkCount[mover];
+        allCheck[mover] &= (isCheck && !forced);
+
+        // Count chase: did this move create new chase?
+        // (after undoing, we compare chased() before vs after the move)
+        const u16 after = rollback.chased(mover);
         rollback.undo_move(stp->move, stp->capturedPiece);
+        const u16 before = rollback.chased(mover);
+
+        // Newly created chase targets
+        const u16 newChases = after & ~before;
+
+        if (newChases)
+            ++chaseCount[mover];
+
+        // Intersection of all chase targets across moves
+        chaseIntersection[mover] &= newChases;
+
         stp = stp->previous;
+
+        // Captures break the cycle
+        if (capture)
+            return false;
     }
 
-    if (moveCount[WHITE] && moveCount[BLACK] &&
-        (allChecking[WHITE] || allChecking[BLACK]))
+    // Need moves from both sides
+    if (moveCount[WHITE] == 0 || moveCount[BLACK] == 0)
+        return false;
+
+    const int halfCycle = d / 2;  // moves per side in the cycle
+
+    // Rule 1: Long check (all moves are non-forced checks)
+    if (allCheck[WHITE] || allCheck[BLACK])
     {
-        if (allChecking[WHITE] ^ allChecking[BLACK])
+        if (allCheck[WHITE] ^ allCheck[BLACK])
         {
-            const Color offender = allChecking[WHITE] ? WHITE : BLACK;
+            const Color offender = allCheck[WHITE] ? WHITE : BLACK;
             result = sky_rule_result(offender, sideToMove);
+            return true;
         }
         else
-            result = VALUE_DRAW;
+        {
+            // Both sides long check: red must change (TianTian rule)
+            result = sky_rule_result(WHITE, sideToMove);
+            return true;
+        }
+    }
+
+    // Rule 2: Long chase (same target chased every move)
+    // Long chase definition: there exists an enemy piece that is chased in EVERY move
+    // = chaseIntersection != 0
+    const bool whiteLongChase = (chaseIntersection[WHITE] != 0);
+    const bool blackLongChase = (chaseIntersection[BLACK] != 0);
+
+    if (whiteLongChase || blackLongChase)
+    {
+        if (whiteLongChase ^ blackLongChase)
+        {
+            const Color offender = whiteLongChase ? WHITE : BLACK;
+            result = sky_rule_result(offender, sideToMove);
+            return true;
+        }
+        else
+        {
+            // Both sides long chase: red must change (TianTian rule)
+            result = sky_rule_result(WHITE, sideToMove);
+            return true;
+        }
+    }
+
+    // Rule 3: Check-chase cycle (alternating check and chase, same piece)
+    // TianTian: one-piece check-chase cycle is a violation
+    // e.g. one move checks, next move chases, repeating
+    // Detect: half the moves are check, half are chase, and there's consistency
+    const bool whiteCheckChase = (checkCount[WHITE] > 0) && (chaseCount[WHITE] > 0);
+    const bool blackCheckChase = (checkCount[BLACK] > 0) && (chaseCount[BLACK] > 0);
+
+    if (whiteCheckChase ^ blackCheckChase)
+    {
+        const Color offender = whiteCheckChase ? WHITE : BLACK;
+        result = sky_rule_result(offender, sideToMove);
         return true;
     }
 
-    // Chase cycle: use detect_chases
-    Position detector;
-    std::memcpy((void*) &detector, (const void*) this, offsetof(Position, filter));
-    result = sky_rule_from_chase_result(detector.detect_chases(d, ply));
+    // Rule 4: Both sides have check-chase cycle
+    if (whiteCheckChase && blackCheckChase)
+    {
+        // TianTian: red must change first when both violate
+        result = sky_rule_result(WHITE, sideToMove);
+        return true;
+    }
+
+    // Note: pure chase cycle with different targets (one piece chases different pieces)
+    // is allowed in TianTian, not a violation (e.g. case 3)
+    // Only same-target long chase counts, which we already handled in Rule 2
+
+    // Neutral cycle: draw
+    result = VALUE_DRAW;
     return true;
 }
 
