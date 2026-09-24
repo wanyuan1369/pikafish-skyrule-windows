@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure AsianRule (Run #11) build, no sky stubs."""
+"""AsianRule + minimal SkyRule: violation scores replaced with ±24999"""
 from __future__ import annotations
 from pathlib import Path
 import re
@@ -21,6 +21,12 @@ def add_once(text, needle, addition, before=False):
     if needle not in text: die(f"anchor not found: {needle[:160]!r}")
     return text.replace(needle, addition + needle if before else needle + addition, 1)
 
+# SkyRule header: define ±24999
+write(SRC / "skyrule.h", '''#pragma once
+constexpr int SKY_RULE_WIN = 24999;
+constexpr int SKY_RULE_LOSS = -24999;
+''')
+
 # AsianRule patch
 path = SRC / "position.h"
 text = read(path)
@@ -34,8 +40,10 @@ write(path, text)
 path = SRC / "position.cpp"
 text = read(path)
 backup(path)
+if '#include "skyrule.h"' not in text:
+    text = add_once(text, '#include "position.h"\n', '#include "skyrule.h"\n')
 text = add_once(text, "using namespace Attacks;\n",
-    "bool ChineseRule = true;\nbool SkyRule = false;\nint  MateThreatDepth = 1;\n")
+    "bool ChineseRule = true;\nbool SkyRule = true;\nint  MateThreatDepth = 1;\n")
 
 old_detect_start = "Value Position::detect_chases(int d, int ply) {"
 if old_detect_start in text:
@@ -82,9 +90,10 @@ if old_detect_start in text:
         }
     }
     if ((!chase[us] && !chase[them]) || (rooks[us] && rooks[them])) return VALUE_DRAW;
-    else if (rooks[us]) return mated_in(ply);
-    else if (rooks[them]) return mate_in(ply);
-    return !chase[us] ? mate_in(ply) : !chase[them] ? mated_in(ply) : VALUE_DRAW;
+    // SKY RULE: return ±24999 instead of mate_in/mated_in
+    else if (rooks[us]) return Value(SKY_RULE_LOSS);
+    else if (rooks[them]) return Value(SKY_RULE_WIN);
+    return !chase[us] ? Value(SKY_RULE_WIN) : !chase[them] ? Value(SKY_RULE_LOSS) : VALUE_DRAW;
 }
 
 bool Position::has_mate_threat(Depth d) {
@@ -121,7 +130,7 @@ text = read(path)
 backup(path)
 text = add_once(text, '    options.add("nodestime", Option(0, 0, 10000));\n',
     '    options.add("Mate Threat Depth", Option(1, 0, 10, [](const Option& o) { MateThreatDepth = int(o); return std::nullopt; }));\n'
-    '    options.add("Repetition Rule", Option("ChineseRule var AsianRule var ChineseRule", "ChineseRule", [](const Option& o) { ChineseRule = (o == "ChineseRule"); return std::nullopt; }));\n')
+    '    options.add("Repetition Rule", Option("ChineseRule var AsianRule var ChineseRule var SkyRule", "SkyRule", [](const Option& o) { ChineseRule = (o == "ChineseRule"); SkyRule = (o == "SkyRule"); return std::nullopt; }));\n')
 write(path, text)
 
 path = SRC / "ucioption.cpp"
@@ -131,4 +140,4 @@ text = re.sub(r'(std::string\s+token;\s*\n\s*std::istringstream ss\(defaultValue
     r'''\1        { if (token == "var" || comboMap.count(token)) continue; comboMap.add(token, Option()); }''', text, count=1)
 write(path, text)
 
-print("Pure AsianRule build applied.")
+print("SkyRule minimal patch applied.")
