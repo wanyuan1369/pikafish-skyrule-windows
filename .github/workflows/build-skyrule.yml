@@ -73,13 +73,12 @@ jobs:
           EOF
 
       - name: Archive binary
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          mkdir -p dist
-          cp pikafish/src/pikafish.exe "dist/Pikafish-SkyRule-Windows-x86-64-universal.exe"
-          printf '%s\n' "$UPSTREAM_SHA" > dist/upstream-sha.txt
-          cd dist
-          7z a "Pikafish-SkyRule-Windows-x86-64-universal.zip" "Pikafish-SkyRule-Windows-x86-64-universal.exe" upstream-sha.txt
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item pikafish/src/pikafish.exe "dist/Pikafish-SkyRule-Windows-x86-64-universal.exe"
+          "$env:UPSTREAM_SHA" | Out-File -Encoding utf8 dist/upstream-sha.txt
+          Compress-Archive -Path "dist/Pikafish-SkyRule-Windows-x86-64-universal.exe", "dist/upstream-sha.txt" -DestinationPath "dist/Pikafish-SkyRule-Windows-x86-64-universal.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
