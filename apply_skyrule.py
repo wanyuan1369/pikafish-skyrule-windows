@@ -144,7 +144,7 @@ bool Position::sky_check_limit_violation(Color& violator) const {
     for (int n = 0; stp && n < 40; ++n)
     {
         const Move m = stp->move;
-        if (m.is_null())
+        if (m.null())
             break;
 
         const Color mover = ~rollback.side_to_move();
@@ -220,7 +220,7 @@ bool Position::sky_chase_limit_violation(Color& violator) const {
     for (int n = 0; stp && n < 20; ++n)
     {
         const Move m = stp->move;
-        if (m.is_null())
+        if (m.null())
             break;
 
         const Color mover = ~rollback.side_to_move();
@@ -284,7 +284,7 @@ bool Position::sky_classify_twofold(int d, Value& result, int ply) {
     StateInfo* stp = this->st;
     for (int i = 0; i < d && stp; ++i)
     {
-        if (stp->move.is_null())
+        if (stp->move.null())
             return false;
 
         const Color mover = ~rollback.side_to_move();
@@ -363,7 +363,7 @@ bool Position::sky_rule_judge(Value& result, int ply) {
     if (filter[st->key] > 0)
     for (; stp; stp = stp->previous && stp->previous->previous ? stp->previous->previous : nullptr, d += 2)
     {
-        if (stp->move.is_null())
+        if (stp->move.null())
             break;
 
         if (stp->key == st->key)
